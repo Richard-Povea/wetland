@@ -1,3 +1,5 @@
+%% RNG
+rng('default')
 %% Import Data
 data  = readtable('test_20_events.csv','ReadRowNames',true, 'TextType', 'string');
 frogs = data.frog;
@@ -17,11 +19,24 @@ murmullos = cellfun(@str2num,murmullos,'un',0);
 %% List data
 table = table(frogs, birds, dogs, cars, steps, murmullos);
 
-%% Raven ------------------------------------------------------------------
-%% project settings
+%% Project settings ------------------------------------------------------------------
+START = 1;
+END = 5;
+RECIEVER = 'binaural'; %Options: binaural, mono, stereo
+IR = 'BRIR';
+
+%% Data to save
+audioNames = {};
+classes = {};
+startTimes = {};
+endTimes = {};
+relativePositions = {};
+orientations = {};
+
+%% Rven project settings
 myLength=250;
 myWidth=250;
-myHeight=100;
+myHeight=50;
 projectName = [ 'tutorial_1' num2str(myLength) 'x' num2str(myWidth) 'x' num2str(myHeight) ];
 
 %% create project and set input data
@@ -43,9 +58,21 @@ rpf.setFilterLength(500)
 % set receiver settings
 rpf.setReceiverPositions([125, 1.5, -125]);
 rpf.setReceiverViewVectors([0, 0, -1])
+
+switch RECIEVER
+    case 'binaural'
+        rpf.setReceiverHRTF('ITA-Kunstkopf_HRIR_AP11_Pressure_Equalized_3x3_256.daff');% HRTF binaural
+    case 'mono'
+        rpf.setReceiverHRTF('Omnidirectional.daff');% HRTF mono
+    case 'stereo'
+        rpf.setReceiverHRTF('StereoPanningReceiver.daff');% HRTF stereo
+end
+
 %set source settings
 rpf.setSourceViewVectors([-1 0 0]);
 rpf.setSourceUpVectors([0 0 -1]);
+rpf.setSourceDirectivity('Omnidirectional.daff');% directividad  
+
 % set source name
 rpf.setSourceNames('test');
 
@@ -53,53 +80,80 @@ rpf.setSourceNames('test');
 materialNames = {'grass', 'anech', 'anech', 'anech', 'anech', 'anech'};
 rpf.setRoomMaterialNames(materialNames);
 
-%% Create Settings
+%% MAIN LOOP
 
-for i = 1:20
+for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, definidos en Project settings
     disp('New line')
-    positions = table(i, :); %#ok<*ST2NM> --- Select i row
-    for j = 1:6
-        pathFile = pathfile(j)
-        taxonomy_positions = positions{:,j}{1};
-        n = size(taxonomy_positions, 1);
+    mySound = empty_audio;
+    positions = table(i_main, :); %#ok<*ST2NM> --- Vector que contiene los vectores de las posiciones para el ambiente 
+    n = {'N','S','E','O'};
+    random_number = randi(4);
+    orientation = chose_orientation(n{random_number});
+    rpf.setSourceViewVectors(orientation);
+    name = sprintf('wetland_%s_%05d.wav', RECIEVER,i_main);
 
-        if n == 0
-            continue
-        elseif n == 1
-            mySound = generate_new_sound(rpf, taxonomy_positions(1,:), pathFile, 'BRIR');
+    for class = 1:6 %Se recorre cada clase a travéz de la variable  'class'
+        pathFile = pathfile(class);
+        taxonomy_positions = positions{:,class}{1}; %Vector de posiciones de todos los eventos de la clase
+        n_event_class = size(taxonomy_positions, 1); %Número de eventos de la clase
+
+        if n_event_class == 0 %Si la clase no tiene eventos en el ambiente i, continua a la siguiente clase
             continue
         end
-        mySound = generate_new_sound(rpf, taxonomy_positions(1,:), pathFile, 'BRIR');
-        for k = 2:n
-            pathFile = pathfile(j)
+        for k = 1:n_event_class
+            pathFile = pathfile(class);
+            position = taxonomy_positions(k,:);
             % mySound
-            mySound = ita_add(mySound, generate_new_sound(rpf, taxonomy_positions(k,:), pathFile, 'BRIR')) ;
+            [new_sound, timeOnSett, timeOffSet] = generate_new_sound(rpf, position, pathFile, IR);
+            mySound = ita_add(mySound, new_sound) ;
             % adding sound files
             
-            disp('-------------------------------------')
-            disp('Absolute  position:')
-            disp(taxonomy_positions(k, :));
-            disp('Relative  position:')
-            disp(taxonomy_positions(k, :)+[-125 0 125])
-            disp('-------------------------------------')
+%             disp('-------------------------------------')
+%             disp('Absolute  position:')
+%             disp(taxonomy_positions(k, :));
+%             disp('Relative  position:')
+%             disp(taxonomy_positions(k, :)+[-125 0 125])
+%             disp('-------------------------------------')
+             %save data
+            audioNames{end+1} = name;
+            classes{end+1} = class;
+            startTimes{end+1} = timeOnSett;
+            endTimes{end+1} = timeOffSet;
+            relativePositions{end+1} = position+[-125, 0, 125];
+            orientations{end+1} = orientation;
+            break
         end
-
-        break
     end
-    write_file(mySound, i);
+    write_file(mySound, i_main);
     break
 end
-
-
-%% Write File
-write_file(mySound_binaural, 5)
-
-
-%% guardar audio polifónico final
-function write_file(mySound_binaural, n_iteration)
-    ita_write_wav(mySound_binaural,sprintf('wetland_%s%05d.wav', 'binarural_',n_iteration),'nbits',32','overwrite',true);
+%%
+write_table(audioNames, classes, startTimes, endTimes, relativePositions, orientations)
+%%
+function orientation = chose_orientation(coordinate)
+    switch coordinate
+        case 'N'
+            orientation = [0, 0, -1];
+        case 'S'
+            orientation = [0, 0, 1];
+        case 'E'
+            orientation = [1, 0, 0];
+        case 'O'
+            orientation = [-1, 0, 0];
+    end
 end
 
-%% 
+function mySound = empty_audio()
+    mySound = itaAudio;
+    mySound.samplingRate = 44100;
+    mySound.channelNames{1} = 'channel 1';
+    mySound.trackLength = 10;
+    mySound.time = zeros(mySound.trackLength*mySound.samplingRate,2);
+end
 
-
+function write_table(audioNames, classes, startTimes, endTimes, relativePostition, orientations)
+    data = [audioNames.', classes.', startTimes.', endTimes.', relativePostition.', orientations.'];
+    table = cell2table(data, "variableNames", ...
+                            {'AudioNames', 'Classes', 'StartTimes', 'EndTimes', 'RelativePositions', 'Orientations'});
+    writetable(table,'data_table.csv')
+end
