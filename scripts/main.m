@@ -1,3 +1,6 @@
+%% Clear
+clear
+clc
 %% RNG
 rng('default')
 %% Import Data
@@ -22,8 +25,7 @@ table = table(frogs, birds, dogs, cars, steps, murmullos);
 %% Project settings ------------------------------------------------------------------
 START = 1;
 END = 5;
-RECIEVER = 'binaural'; %Options: binaural, mono, stereo
-IR = 'BRIR';
+RECIEVER = 'binaural'; %Options: binaural, mono, stereo, ambisonics
 
 %% Data to save
 audioNames = {};
@@ -31,6 +33,7 @@ classes = {};
 startTimes = {};
 endTimes = {};
 relativePositions = {};
+relativePositionsSph = {};
 orientations = {};
 
 %% Rven project settings
@@ -62,10 +65,21 @@ rpf.setReceiverViewVectors([0, 0, -1])
 switch RECIEVER
     case 'binaural'
         rpf.setReceiverHRTF('ITA-Kunstkopf_HRIR_AP11_Pressure_Equalized_3x3_256.daff');% HRTF binaural
+        IR = 'BRIR';
     case 'mono'
         rpf.setReceiverHRTF('Omnidirectional.daff');% HRTF mono
+        IR = 'IR';
     case 'stereo'
         rpf.setReceiverHRTF('StereoPanningReceiver.daff');% HRTF stereo
+        IR = 'BRIR';
+    case 'ambisonics'
+        rpf.setGenerateBRIR(0);     % deactivate binaural filters 
+        rpf.setGenerateRIR(0);      % deactivate mono filters
+        rpf.setGenerateISHOA(1);    % activate HOA for image sources
+        rpf.setGenerateRTHOA(1);    % activate HOA for ray tracing 
+        rpf.setAmbisonicsOrder(1);  % set HOA Order
+        rpf.setReceiverHRTF('ITA-Kunstkopf_HRIR_AP11_Pressure_Equalized_3x3_256.daff');% HRTF binaural
+        IR = 'BRIR';
 end
 
 %set source settings
@@ -118,8 +132,13 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
             audioNames{end+1} = name;
             classes{end+1} = class;
             startTimes{end+1} = timeOnSett;
-            endTimes{end+1} = timeOffSet;
-            relativePositions{end+1} = position+[-125, 0, 125];
+            endTimes{end+1} = round(timeOffSet, 1);
+            aux = position+[-125, -1.5, 125];
+            relativePositions{end+1} = aux;
+            aux = num2cell(aux);
+            [x,y,z] = aux{:};
+            [azimuth,elevation,r] = cart2sph(x, z, y);
+            relativePositionsSph{end+1} = [azimuth*180/pi, elevation*180/pi, r];
             orientations{end+1} = orientation;
             break
         end
@@ -128,7 +147,8 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
     break
 end
 %%
-write_table(audioNames, classes, startTimes, endTimes, relativePositions, orientations)
+write_table(audioNames, classes, startTimes, endTimes)
+write_positions_table(relativePositions, relativePositionsSph, orientations)
 %%
 function orientation = chose_orientation(coordinate)
     switch coordinate
@@ -151,9 +171,16 @@ function mySound = empty_audio()
     mySound.time = zeros(mySound.trackLength*mySound.samplingRate,2);
 end
 
-function write_table(audioNames, classes, startTimes, endTimes, relativePostition, orientations)
-    data = [audioNames.', classes.', startTimes.', endTimes.', relativePostition.', orientations.'];
-    table = cell2table(data, "variableNames", ...
-                            {'AudioNames', 'Classes', 'StartTimes', 'EndTimes', 'RelativePositions', 'Orientations'});
-    writetable(table,'data_table.csv')
+function write_table(audioNames, classes, startTimes, endTimes)
+    data = [audioNames.', classes.', startTimes.', endTimes.'];
+    data = cell2table(data, "variableNames", ...
+                            {'AudioNames', 'Classes', 'StartTimes', 'EndTimes'});
+    writetable(data,'data_table.csv')
+end
+
+function write_positions_table(relativePositions, relativePositionsSph, orientations)
+    data = [relativePositions.', relativePositionsSph.', orientations.'];
+    data = cell2table(data, "variableNames", ...
+                            {'relativePositions', 'relativePositionsSph', 'orientations'});
+    writetable(data,'data_positions_table.csv')
 end
