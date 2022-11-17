@@ -1,6 +1,7 @@
 %% Clear
 clear
 clc
+tic %init temer
 %% RNG
 rng('default')
 %% Import Data
@@ -25,16 +26,10 @@ table = table(frogs, birds, dogs, cars, steps, murmullos);
 %% Project settings ------------------------------------------------------------------
 START = 1;
 END = 5;
-RECIEVER = 'binaural'; %Options: binaural, mono, stereo, ambisonics
-
-%% Data to save
-audioNames = {};
-classes = {};
-startTimes = {};
-endTimes = {};
-relativePositions = {};
-relativePositionsSph = {};
-orientations = {};
+RECIEVER = 'ambisonics'; %Options: binaural, mono, stereo, ambisonics
+% Labels
+matrixlabel = ({'audioNames', 'classes', 'startTimes', 'endTimes', 'relativePositions', ...
+    'relativePositionsSph', 'orientations',  'wind', 'rain'});
 
 %% Rven project settings
 myLength=250;
@@ -49,13 +44,23 @@ rpf.setProjectName(projectName);
 rpf.setModelToShoebox(myLength,myWidth,myHeight);
 
 %% set simulation parameters
-rpf.setGenerateRIR(1);
-rpf.setGenerateBRIR(1);
-rpf.setSimulationTypeRT(1);
+% activate image source simulation
 rpf.setSimulationTypeIS(1);
+
+% activate ray tracing simulation
+rpf.setSimulationTypeRT(1);
+
+% create mono room impulse response
+rpf.setGenerateRIR(1);
+
+% create binaural room impulse response
+rpf.setGenerateBRIR(1);
+
 rpf.setNumParticles(60000);
 rpf.setISOrder_PS(2);
-rpf.setFilterLength(500)
+rpf.setFilterLength(500);
+
+rpf.setExportHistogram(0);
 
 %% Source and reciever settings
 % set receiver settings
@@ -63,12 +68,12 @@ rpf.setReceiverPositions([125, 1.5, -125]);
 rpf.setReceiverViewVectors([0, 0, -1])
 
 switch RECIEVER
+    case 'mono'
+        rpf.setReceiverHRTF('HRTF_Omni+Fig8.daff');% HRTF mono
+        IR = 'IR';
     case 'binaural'
         rpf.setReceiverHRTF('ITA-Kunstkopf_HRIR_AP11_Pressure_Equalized_3x3_256.daff');% HRTF binaural
         IR = 'BRIR';
-    case 'mono'
-        rpf.setReceiverHRTF('Omnidirectional.daff');% HRTF mono
-        IR = 'IR';
     case 'stereo'
         rpf.setReceiverHRTF('StereoPanningReceiver.daff');% HRTF stereo
         IR = 'BRIR';
@@ -79,7 +84,10 @@ switch RECIEVER
         rpf.setGenerateRTHOA(1);    % activate HOA for ray tracing 
         rpf.setAmbisonicsOrder(1);  % set HOA Order
         rpf.setReceiverHRTF('ITA-Kunstkopf_HRIR_AP11_Pressure_Equalized_3x3_256.daff');% HRTF binaural
-        IR = 'BRIR';
+        IR = 'ambisonics';
+    otherwise
+        fprintf('%s not founded', RECIEVER)
+        
 end
 
 %set source settings
@@ -99,14 +107,31 @@ rpf.setRoomMaterialNames(materialNames);
 for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, definidos en Project settings
     disp('New line')
     mySound = empty_audio;
+
+    % rain
+    if random_binary(1)
+       mySound = add_noise(mySound,7);
+       rain = true;
+    else
+       rain = false;
+    end
+
+    % wind
+    if random_binary(1)
+       mySound = add_noise(mySound,8);
+       wind = true;
+    else
+       wind = false;
+    end
+    
     positions = table(i_main, :); %#ok<*ST2NM> --- Vector que contiene los vectores de las posiciones para el ambiente 
     n = {'N','S','E','O'};
     random_number = randi(4);
-    orientation = chose_orientation(n{random_number});
-    rpf.setSourceViewVectors(orientation);
+    [vector_orientation, orientation] = chose_orientation(n{random_number});
+    rpf.setSourceViewVectors(vector_orientation);
     name = sprintf('wetland_%s_%05d.wav', RECIEVER,i_main);
 
-    for class = 1:6 %Se recorre cada clase a travéz de la variable  'class'
+    for class = 1:5 %Se recorre cada clase a travéz de la variable  'class'
         pathFile = pathfile(class);
         taxonomy_positions = positions{:,class}{1}; %Vector de posiciones de todos los eventos de la clase
         n_event_class = size(taxonomy_positions, 1); %Número de eventos de la clase
@@ -120,37 +145,23 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
             % mySound
             [new_sound, timeOnSett, timeOffSet] = generate_new_sound(rpf, position, pathFile, IR);
             mySound = ita_add(mySound, new_sound) ;
-            % adding sound files
-            
-%             disp('-------------------------------------')
-%             disp('Absolute  position:')
-%             disp(taxonomy_positions(k, :));
-%             disp('Relative  position:')
-%             disp(taxonomy_positions(k, :)+[-125 0 125])
-%             disp('-------------------------------------')
-             %save data
-            audioNames{end+1} = name;
-            classes{end+1} = class;
-            startTimes{end+1} = timeOnSett;
-            endTimes{end+1} = round(timeOffSet, 1);
             aux = position+[-125, -1.5, 125];
-            relativePositions{end+1} = aux;
             aux = num2cell(aux);
             [x,y,z] = aux{:};
             [azimuth,elevation,r] = cart2sph(x, z, y);
-            relativePositionsSph{end+1} = [azimuth*180/pi, elevation*180/pi, r];
-            orientations{end+1} = orientation;
-            break
+
+            matrixlabel = ([matrixlabel; {name, class,timeOnSett, timeOffSet, aux, ...
+                           [azimuth*180/pi, elevation*180/pi, r], orientation, wind, rain}]);
+            
         end
     end
-    write_file(mySound, i_main);
-    break
+    write_file(mySound, i_main, RECIEVER);
 end
-%%
-write_table(audioNames, classes, startTimes, endTimes)
-write_positions_table(relativePositions, relativePositionsSph, orientations)
-%%
-function orientation = chose_orientation(coordinate)
+%% Export
+write_table(matrixlabel, RECIEVER)
+toc %stop timer
+%% Functions
+function [orientation, coordinate] = chose_orientation(coordinate)
     switch coordinate
         case 'N'
             orientation = [0, 0, -1];
@@ -171,16 +182,18 @@ function mySound = empty_audio()
     mySound.time = zeros(mySound.trackLength*mySound.samplingRate,2);
 end
 
-function write_table(audioNames, classes, startTimes, endTimes)
-    data = [audioNames.', classes.', startTimes.', endTimes.'];
-    data = cell2table(data, "variableNames", ...
-                            {'AudioNames', 'Classes', 'StartTimes', 'EndTimes'});
-    writetable(data,'data_table.csv')
+function write_table(matrixlabel, reciever)
+    C = matrixlabel(2:end,:);
+    Table = cell2table(C);
+    labels = {matrixlabel{1,:}};
+    Table.Properties.VariableNames = labels;
+    writetable(Table, sprintf('final_data_table_%s.csv', reciever))
 end
 
-function write_positions_table(relativePositions, relativePositionsSph, orientations)
-    data = [relativePositions.', relativePositionsSph.', orientations.'];
-    data = cell2table(data, "variableNames", ...
-                            {'relativePositions', 'relativePositionsSph', 'orientations'});
-    writetable(data,'data_positions_table.csv')
+function logic_vars =  random_binary(n)
+    logic_vars = randi([0 1],n,1);
+end
+
+function mySound = add_noise(my_sound, class)
+    mySound = ita_add(my_sound, mySound_time_structure(pathfile(class), true, true));
 end
