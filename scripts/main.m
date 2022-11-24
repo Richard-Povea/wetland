@@ -1,41 +1,36 @@
 %% Clear
 clear
 clc
-tic %init temer
+tic %init timer
 %% RNG
-rng('default')
-%% Import Data
-data  = readtable('test_20_events.csv','ReadRowNames',true, 'TextType', 'string');
-frogs = data.frog;
-birds = data.bird;
-dogs = data.dog;
-cars = data.car;
-steps = data.step;
-murmullos = data.murmullo;
-%% Numeric data
-frogs = cellfun(@str2num,frogs,'un',0);
-birds = cellfun(@str2num,birds,'un',0);
-dogs = cellfun(@str2num,dogs,'un',0);
-cars = cellfun(@str2num,cars,'un',0);
-steps = cellfun(@str2num,steps,'un',0);
-murmullos = cellfun(@str2num,murmullos,'un',0);
+global myStream myStream2 RNG %#ok<GVMIS> 
+myStream = RandStream('mlfg6331_64');
+myStream2 = RandStream("mrg32k3a");
+RandStream.setGlobalStream(myStream);
 
-%% List data
-table = table(frogs, birds, dogs, cars, steps, murmullos);
+%% Import data
+table = import_data;
+N_CLASES = size(table, 2);
 
 %% Project settings ------------------------------------------------------------------
-START = 1;
-END = 5;
-RECIEVER = 'ambisonics'; %Options: binaural, mono, stereo, ambisonics
-% Labels
-matrixlabel = ({'audioNames', 'classes', 'startTimes', 'endTimes', 'relativePositions', ...
+global RECIEVER %#ok<GVMIS> 
+
+START = 1; % Primero Audio a Crear 
+END = 2; % Último Audio a Crear
+RECIEVER = 'binaural'; %Options: binaural, mono, stereo, ambisonics
+%-------------------------------------------------------------------------------------
+%% Skip data
+RNG = skip_data(table, START);
+
+%% Labels para csv de salida
+matrixlabel = ({'audioNames', 'classes', 'pathfile', 'startTimes', 'endTimes', 'relativePositions', ...
     'relativePositionsSph', 'orientations',  'wind', 'rain'});
 
-%% Rven project settings
+%% Raven project settings
 myLength=250;
 myWidth=250;
 myHeight=50;
-projectName = [ 'tutorial_1' num2str(myLength) 'x' num2str(myWidth) 'x' num2str(myHeight) ];
+projectName = ['tutorial_1' num2str(myLength) 'x' num2str(myWidth) 'x' num2str(myHeight)];
 
 %% create project and set input data
 rpf = itaRavenProject('C:\ITASoftware\Raven\RavenInput\Classroom\Classroom.rpf');   % modify path if not installed in default directory
@@ -102,37 +97,49 @@ rpf.setSourceNames('test');
 materialNames = {'grass', 'anech', 'anech', 'anech', 'anech', 'anech'};
 rpf.setRoomMaterialNames(materialNames);
 
+%% BG NOISE
+BG_NOISE_PATH = 'bg_noise.wav';
+%distance
+BG_NOISE_DISTANCE = 30; %Distance between reciever and bg_noise (+- Z)
+DISTANCE = 50; %Distance between reciever and source (+- Z)
+%Sounds
+bgNoise = bg_noise(rpf, BG_NOISE_PATH, BG_NOISE_DISTANCE);
+bg_rain = bg_noise(rpf, pathfile(7, false), DISTANCE);
+bg_wind = bg_noise(rpf, pathfile(8, false), DISTANCE);
+
 %% MAIN LOOP
 
 for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, definidos en Project settings
     disp('New line')
-    mySound = empty_audio;
+    mySound = bgNoise;
+    myStream2.Substream = i_main;
 
-    % rain
+    %% rain
     if random_binary(1)
-       mySound = add_noise(mySound,7);
+       mySound = ita_add(mySound, bg_rain);
        rain = true;
     else
        rain = false;
     end
 
-    % wind
+    %% wind
     if random_binary(1)
-       mySound = add_noise(mySound,8);
+       mySound = ita_add(mySound, bg_wind);
        wind = true;
     else
        wind = false;
     end
-    
+
+    %% Orientations
     positions = table(i_main, :); %#ok<*ST2NM> --- Vector que contiene los vectores de las posiciones para el ambiente 
     n = {'N','S','E','O'};
-    random_number = randi(4);
+    random_number = randi(myStream2, 4);
     [vector_orientation, orientation] = chose_orientation(n{random_number});
     rpf.setSourceViewVectors(vector_orientation);
     name = sprintf('wetland_%s_%05d.wav', RECIEVER,i_main);
 
-    for class = 1:5 %Se recorre cada clase a travéz de la variable  'class'
-        pathFile = pathfile(class);
+    %% Event by class 
+    for class = 1:N_CLASES %Se recorre cada clase a travéz de la variable  'class'
         taxonomy_positions = positions{:,class}{1}; %Vector de posiciones de todos los eventos de la clase
         n_event_class = size(taxonomy_positions, 1); %Número de eventos de la clase
 
@@ -143,23 +150,28 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
             pathFile = pathfile(class);
             position = taxonomy_positions(k,:);
             % mySound
-            [new_sound, timeOnSett, timeOffSet] = generate_new_sound(rpf, position, pathFile, IR);
+            [new_sound, timeOnSett, timeOffSet] = generate_new_sound(rpf, position, pathFile);
             mySound = ita_add(mySound, new_sound) ;
-            aux = position+[-125, -1.5, 125];
-            aux = num2cell(aux);
-            [x,y,z] = aux{:};
+            relative_position = position+[-125, -1.5, 125];
+            relative_position = num2cell(relative_position);
+            [x,y,z] = relative_position{:};
             [azimuth,elevation,r] = cart2sph(x, z, y);
 
-            matrixlabel = ([matrixlabel; {name, class,timeOnSett, timeOffSet, aux, ...
-                           [azimuth*180/pi, elevation*180/pi, r], orientation, wind, rain}]);
+            matrixlabel = ([matrixlabel; {name, class, pathFile, timeOnSett, timeOffSet, relative_position, ...
+                           {azimuth*180/pi, elevation*180/pi, r}, orientation, wind, rain}]);
+            break
             
         end
+        break
     end
-    write_file(mySound, i_main, RECIEVER);
+%% Save Sound
+    write_file(mySound, i_main);
+
 end
 %% Export
-write_table(matrixlabel, RECIEVER)
+write_table(matrixlabel)
 toc %stop timer
+
 %% Functions
 function [orientation, coordinate] = chose_orientation(coordinate)
     switch coordinate
@@ -182,18 +194,66 @@ function mySound = empty_audio()
     mySound.time = zeros(mySound.trackLength*mySound.samplingRate,2);
 end
 
-function write_table(matrixlabel, reciever)
+function write_table(matrixlabel)
+    global RECIEVER
     C = matrixlabel(2:end,:);
     Table = cell2table(C);
-    labels = {matrixlabel{1,:}};
+    labels = string({matrixlabel{1,:}});
     Table.Properties.VariableNames = labels;
-    writetable(Table, sprintf('final_data_table_%s.csv', reciever))
+    path = sprintf('\\Data_generated\\final_data_table_%s.csv', RECIEVER);
+
+    if exist(path, 'file') %Verificar si ya hay un archivo csv guardado
+        csv = readtable(path);
+        Table = ([Table; csv]);
+    end
+    writetable(Table, path)
 end
 
 function logic_vars =  random_binary(n)
-    logic_vars = randi([0 1],n,1);
+    global myStream2 
+    logic_vars = randi(myStream2, [0 1],n,1);
 end
 
-function mySound = add_noise(my_sound, class)
-    mySound = ita_add(my_sound, mySound_time_structure(pathfile(class), true, true));
+function mySound = bg_noise(rpf, path, distance)
+
+    [mySound, TimeOnset, TimeOffset] = generate_new_sound(rpf, [125, 1, -125+distance], path);
+    [newSound, TimeOnset, TimeOffset] = generate_new_sound(rpf, [125, 1, -125.5-distance], path);
+    mySound =  ita_add(mySound, newSound);
+end
+
+function data = import_data()
+    %% Import Data
+    data  = readtable('test_20_events.csv','ReadRowNames',true, 'TextType', 'string');
+    frogs = data.frog;
+    birds = data.bird;
+    dogs = data.dog;
+    cars = data.car;
+    steps = data.step;
+    murmullos = data.murmullo;
+    %% Numeric data
+    frogs = cellfun(@str2num,frogs,'un',0);
+    birds = cellfun(@str2num,birds,'un',0);
+    dogs = cellfun(@str2num,dogs,'un',0);
+    cars = cellfun(@str2num,cars,'un',0);
+    steps = cellfun(@str2num,steps,'un',0);
+    murmullos = cellfun(@str2num,murmullos,'un',0);
+    
+    %% List data
+    data = table(frogs, birds, dogs, cars, steps, murmullos);
+end
+
+function n = skip_data(data, start)
+    n = 0;
+    if start == 1
+        n = n+1;
+        return
+    end
+    for i = 1:start-1
+        a = data(i,:);
+        for j = a
+            var = j.Variables;
+            n = size(var{1}, 1) + n;
+        end
+    end
+    n = n+1;
 end

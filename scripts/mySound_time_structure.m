@@ -15,7 +15,7 @@ function [mySoundConvolved_cortado, randTimeOnset, endTime] = mySound_time_struc
     end
     length1 = uint32(randTimeOnset*mySoundConvolved_cortado.samplingRate);
     length2 = uint32(randTimeOffset*mySoundConvolved_cortado.samplingRate);
-    endTime = randTimeOnset + soundLength;
+    endTime = round(randTimeOnset + soundLength, 1);
 
     %% fill zeros
     channels = mySoundConvolved_cortado.dimensions;
