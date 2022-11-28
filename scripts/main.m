@@ -59,7 +59,7 @@ rpf.setExportHistogram(0);
 
 %% Source and reciever settings
 % set receiver settings
-rpf.setReceiverPositions([125, 1.5, -125]);
+rpf.setReceiverPositions([125, 2, -125]);
 rpf.setReceiverViewVectors([0, 0, -1])
 
 switch RECIEVER
