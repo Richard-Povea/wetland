@@ -23,8 +23,10 @@ overwrite = confirm_overwrite;
 RNG = skip_data(table, START);
 
 %% Labels para csv de salida
-matrixlabel = ({'audioNames', 'classes', 'pathfile', 'startTimes', 'endTimes', 'relativePositions', ...
-    'relativePositionsSph', 'orientations',  'wind', 'rain'});
+matrixlabel = ({'audioNames', 'classes', 'pathfile', 'startTimes', 'endTimes', ...
+    'relative_x', 'relative_y', 'relative_z',...
+    'relative_azimuth', 'relative_elevation', 'distance', ...
+    'orientations',  'wind', 'rain'});
 
 %% Raven project settings
 myLength=250;
@@ -156,13 +158,15 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
             % mySound
             [new_sound, timeOnSett, timeOffSet] = generate_new_sound(rpf, position, pathFile);
             mySound = ita_add(mySound, new_sound) ;
-            relative_position = position+[-125, -1.5, 125];
+            relative_position = position+[-125, -2, 125];
             relative_position = num2cell(relative_position);
             [x,y,z] = relative_position{:};
             [azimuth,elevation,r] = cart2sph(x, z, y);
 
-            matrixlabel = ([matrixlabel; {name, class, pathFile, timeOnSett, timeOffSet, relative_position, ...
-                           {azimuth*180/pi, elevation*180/pi, r}, orientation, wind, rain}]);            
+            matrixlabel = ([matrixlabel; {name, class, pathFile, timeOnSett, timeOffSet, ...
+                            x, y, z, ...
+                           azimuth*180/pi, elevation*180/pi, r, ...
+                           orientation, wind, rain}]);            
         end
     end
 %% Save Sound
@@ -196,7 +200,7 @@ function write_table(matrixlabel, overwrite)
 
     if ~overwrite
         csv = readtable(path);
-        Table = ([Table; csv]);
+        Table = ([csv; Table]);
     end
     writetable(Table, path)
 end
