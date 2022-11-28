@@ -6,11 +6,9 @@ function pathfile = pathfile(taxonomy, skip)
      end
 
     global RNG myStream %#ok<GVMIS> 
-    taxonomies = {'frog', 'bird', 'dog', 'vehicle', 'step', 'murmullo', 'rain',  'wind'};
-    selected_taxonomy = taxonomies{taxonomy};
-    base_path = 'D:\mediaData';
-    taxonomy_path = sprintf('%s%s%s',base_path,'\', selected_taxonomy);
-    n_files = size(rdir(taxonomy_path),1)-1;
+
+    taxonomy_path = sprintf('.\\mediaData\\%s', taxonomy);
+    n_files = size(dir(taxonomy_path),1)-2;
 
     if skip
         myStream.Substream = RNG;
@@ -19,5 +17,5 @@ function pathfile = pathfile(taxonomy, skip)
 
     random = randi(n_files);
    
-    pathfile = sprintf('%s\\%s%03d.wav', taxonomy_path, selected_taxonomy, random);
+    pathfile = sprintf('%s\\%s%03d.wav', taxonomy_path, taxonomy, random);
 end

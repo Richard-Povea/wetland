@@ -1,11 +1,11 @@
-function [mySound_binaural, TimeOnset, TimeOffset] = generate_new_sound(rpf, position, sound)
+function [mySound_binaural, TimeOnset, TimeOffset] = generate_new_sound(rpf, position, path)
     % set source settings
     rpf.setSourcePositions(position);
     % run simulation
     rpf.run
     
     % Llamar al audio monofónico
-    mySound = ita_read(sound);
+    mySound = ita_read(path);
 
     % generar la respuesta a impulso
     global RECIEVER

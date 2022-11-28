@@ -2,6 +2,7 @@
 clear
 clc
 tic %init timer
+
 %% RNG
 global myStream myStream2 RNG %#ok<GVMIS> 
 myStream = RandStream('mlfg6331_64');
@@ -11,13 +12,12 @@ RandStream.setGlobalStream(myStream);
 %% Import data
 table = import_data;
 N_CLASES = size(table, 2);
+clases = {'frog', 'bird', 'dog', 'vehicle', 'step', 'murmullo', 'rain',  'wind'};
 
 %% Project settings ------------------------------------------------------------------
 global RECIEVER %#ok<GVMIS> 
-
-START = 1; % Primero Audio a Crear 
-END = 2; % Último Audio a Crear
-RECIEVER = 'binaural'; %Options: binaural, mono, stereo, ambisonics
+[START, END, RECIEVER] = import_params;
+overwrite = confirm_overwrite;
 %-------------------------------------------------------------------------------------
 %% Skip data
 RNG = skip_data(table, START);
@@ -97,6 +97,10 @@ rpf.setSourceNames('test');
 materialNames = {'grass', 'anech', 'anech', 'anech', 'anech', 'anech'};
 rpf.setRoomMaterialNames(materialNames);
 
+%%
+%bg_frogs(rpf)
+normalize
+
 %% BG NOISE
 BG_NOISE_PATH = 'bg_noise.wav';
 %distance
@@ -104,8 +108,8 @@ BG_NOISE_DISTANCE = 30; %Distance between reciever and bg_noise (+- Z)
 DISTANCE = 50; %Distance between reciever and source (+- Z)
 %Sounds
 bgNoise = bg_noise(rpf, BG_NOISE_PATH, BG_NOISE_DISTANCE);
-bg_rain = bg_noise(rpf, pathfile(7, false), DISTANCE);
-bg_wind = bg_noise(rpf, pathfile(8, false), DISTANCE);
+bg_rain = bg_noise(rpf, pathfile('rain', false), DISTANCE);
+bg_wind = bg_noise(rpf, pathfile('wind', false), DISTANCE);
 
 %% MAIN LOOP
 
@@ -139,7 +143,7 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
     name = sprintf('wetland_%s_%05d.wav', RECIEVER,i_main);
 
     %% Event by class 
-    for class = 1:N_CLASES %Se recorre cada clase a travéz de la variable  'class'
+    for class = clases(1:6) %Se recorre cada clase a travéz de la variable  'class'
         taxonomy_positions = positions{:,class}{1}; %Vector de posiciones de todos los eventos de la clase
         n_event_class = size(taxonomy_positions, 1); %Número de eventos de la clase
 
@@ -147,7 +151,7 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
             continue
         end
         for k = 1:n_event_class
-            pathFile = pathfile(class);
+            pathFile = pathfile(class{1});
             position = taxonomy_positions(k,:);
             % mySound
             [new_sound, timeOnSett, timeOffSet] = generate_new_sound(rpf, position, pathFile);
@@ -158,18 +162,14 @@ for i_main = START:END %Iteración por los ambientes, desde STRAT hasta END, def
             [azimuth,elevation,r] = cart2sph(x, z, y);
 
             matrixlabel = ([matrixlabel; {name, class, pathFile, timeOnSett, timeOffSet, relative_position, ...
-                           {azimuth*180/pi, elevation*180/pi, r}, orientation, wind, rain}]);
-            break
-            
+                           {azimuth*180/pi, elevation*180/pi, r}, orientation, wind, rain}]);            
         end
-        break
     end
 %% Save Sound
     write_file(mySound, i_main);
-
 end
 %% Export
-write_table(matrixlabel)
+write_table(matrixlabel, overwrite)
 toc %stop timer
 
 %% Functions
@@ -185,24 +185,16 @@ function [orientation, coordinate] = chose_orientation(coordinate)
             orientation = [-1, 0, 0];
     end
 end
-
-function mySound = empty_audio()
-    mySound = itaAudio;
-    mySound.samplingRate = 44100;
-    mySound.channelNames{1} = 'channel 1';
-    mySound.trackLength = 10;
-    mySound.time = zeros(mySound.trackLength*mySound.samplingRate,2);
-end
-
-function write_table(matrixlabel)
+  
+function write_table(matrixlabel, overwrite)
     global RECIEVER
     C = matrixlabel(2:end,:);
     Table = cell2table(C);
     labels = string({matrixlabel{1,:}});
     Table.Properties.VariableNames = labels;
-    path = sprintf('\\Data_generated\\final_data_table_%s.csv', RECIEVER);
+    path = sprintf('.\\Data_generated\\final_data_table_%s.csv', RECIEVER);
 
-    if exist(path, 'file') %Verificar si ya hay un archivo csv guardado
+    if ~overwrite
         csv = readtable(path);
         Table = ([Table; csv]);
     end
@@ -216,44 +208,57 @@ end
 
 function mySound = bg_noise(rpf, path, distance)
 
-    [mySound, TimeOnset, TimeOffset] = generate_new_sound(rpf, [125, 1, -125+distance], path);
-    [newSound, TimeOnset, TimeOffset] = generate_new_sound(rpf, [125, 1, -125.5-distance], path);
+    [mySound, ~, ~] = generate_new_sound(rpf, [125, 1, -125+distance], path);
+    [newSound, ~, ~] = generate_new_sound(rpf, [125, 1, -125.5-distance], path);
     mySound =  ita_add(mySound, newSound);
 end
 
 function data = import_data()
     %% Import Data
     data  = readtable('test_20_events.csv','ReadRowNames',true, 'TextType', 'string');
-    frogs = data.frog;
-    birds = data.bird;
-    dogs = data.dog;
-    cars = data.car;
-    steps = data.step;
-    murmullos = data.murmullo;
+    frog = data.frog;
+    bird = data.bird;
+    dog = data.dog;
+    vehicle = data.car;
+    step = data.step;
+    murmullo = data.murmullo;
     %% Numeric data
-    frogs = cellfun(@str2num,frogs,'un',0);
-    birds = cellfun(@str2num,birds,'un',0);
-    dogs = cellfun(@str2num,dogs,'un',0);
-    cars = cellfun(@str2num,cars,'un',0);
-    steps = cellfun(@str2num,steps,'un',0);
-    murmullos = cellfun(@str2num,murmullos,'un',0);
+    frog = cellfun(@str2num,frog,'un',0);
+    bird = cellfun(@str2num,bird,'un',0);
+    dog = cellfun(@str2num,dog,'un',0);
+    vehicle = cellfun(@str2num,vehicle,'un',0);
+    step = cellfun(@str2num,step,'un',0);
+    murmullo = cellfun(@str2num,murmullo,'un',0);
     
     %% List data
-    data = table(frogs, birds, dogs, cars, steps, murmullos);
+    data = table(frog, bird, dog, vehicle, step, murmullo);
 end
 
-function n = skip_data(data, start)
-    n = 0;
+function n_events = skip_data(data, start)
+    n_events = 0;
     if start == 1
-        n = n+1;
+        n_events = n_events+1;
         return
     end
     for i = 1:start-1
         a = data(i,:);
         for j = a
             var = j.Variables;
-            n = size(var{1}, 1) + n;
+            n_events = size(var{1}, 1) + n_events;
         end
     end
-    n = n+1;
+    n_events = n_events+1;
+end
+
+function [START, END, RECIEVER] = import_params()
+    arrays = 'ambisonics binaural mono stereo'; %Posibles arreglos
+
+    data = split(readlines("params.txt"));
+    [START, END, RECIEVER] = data{:, 3};
+
+    if ~any(ismember(arrays, RECIEVER))
+        error('%s is not valid as an array, please change it for:\n%s', RECIEVER, arrays);
+    end
+    START = str2num(START);
+    END = str2num(END);
 end
